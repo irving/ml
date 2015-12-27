@@ -1,0 +1,177 @@
+---
+title: "Machine Learning Class Project"
+author: "irv"
+date: "December 26, 2015"
+output: html_document
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+    library(caret)
+    library(randomForest)
+    set.seed(41536)
+```
+## Introduction ##
+
+The purpose of this project was to generate a statistical model that can predict a class of movement from raw data from accelerometers worn by humans. The initial data was read from a csv file and processed using cross-validation to determine which of the data columns would be used as predictors. Then those columns were used to build a random forest which predicted results against the test set with an accuracy of nearly 100%.
+
+## Methods ##
+
+### Preparation ###
+
+Analysis was done in R using the randomForest package. After downloading the data from <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv> [^1] The first step was to read the data and massage it slightly to make it usable, by converting the predictor column (classe) to a factor and ensuring that all other columns were numeric.
+
+At this stage, also, some useless variables were removed. Those were: 
+
+**user_name** . The username was removed for being irrlevant. That is, if it correlates at all with outcomes, it will be a liability when testing data outside the training set.
+
+**cvtd_timestamp** . Likewise the converted timestamp is specific to the actual data gathering experiments and has no value in predicting results of any other experiments. 
+
+**X** .  The variable X is merely a counter and serves no purpose.
+
+Finally, the data were segmented into a testing and a training set (as the data file labeled testing is, in fact, a test for the machine learning class and it would be better to see results before reaching that point). The code used to read in and prepare the data is in appendix A.
+
+
+```{r, warning=FALSE, echo=FALSE}
+    # read the data
+    csv <- read.csv("pml-training.csv", stringsAsFactors = FALSE)
+    
+    # convert the classe column into a factor, however
+    csv$classe <- as.factor(csv$classe)
+
+    # remove useless columns
+    removeThese <- c('user_name', 'cvtd_timestamp', 'X')
+    csv <- csv[, !(names(csv) %in% removeThese)]
+    
+    # now convert all columns other than classe to numeric because a few were read as character
+    for (i in 1:length(colnames(csv))){
+        name <- colnames(csv)[i]
+        
+        if (name != "classe"){
+            csv[, name] <- as.numeric(csv[, name])
+            # putting in zeroes in place of the NAs so some kind of analysis is possible
+            nas <- is.na(csv[, name])
+            csv[, name][nas] <- 0
+        }
+    }
+
+ 
+    # segment
+    inTrain <- createDataPartition(y=csv$classe, p=0.70, list=FALSE)
+    training <- csv[inTrain,]
+    testing <- csv[-inTrain,]
+```
+
+### Cross Validation ###
+
+Cross validation is a method that compares subsets of features to each other. It is very helpful in finding those features that have the least correlation with each other as well as the highest predictive value. 
+
+```{r echo=TRUE}
+    # cross validation
+    f <- rfcv(training[, -77], training$classe)
+```
+
+The R function rfcv (from the random forest package) was given all the variable columns remaining after preparation (above). It produced the following variables as a "best set": 
+    
+         Variable Name     |   Error Rate    
+     --------------------- | --------------  
+        magnet_forearm_z     0.006770037     
+        skewness_yaw_arm     0.007861979     
+        magnet_belt_z        0.011574580     
+        min_yaw_belt         0.012084152     
+        kurtosis_roll_belt   0.048918978     
+        pitch_belt           0.347819757     
+        roll_belt            0.614035088     
+    
+    
+### The Model ###
+    
+Using only the 7 variables given above a random forest was constructed to predict the outcome. The data show the outcome in the classe column as one of the letters A, B, C, D, E, each representing a motion style. The result is shown below:
+
+```{r echo=TRUE}
+    # adjust columns to include only those chosen by cross validation
+    columns <- c(colnames(training)[f$n.var], "classe")
+    training <- training[, columns]
+    testing <- testing[, columns]
+    
+    # Now make the model
+    rf <- randomForest(classe ~ ., data=training)
+    rf
+```
+
+Random Forest was used largely because it is extremely well suited to data where the outcome comprises a small set of discrete values (in this case A, B, C, D and E). Random forest is also fairly easy to interpret.
+
+
+## Results ##
+
+Predictions on the training set are, as expected, almost 100% accurate (while reduction of the predictors to only 7 (from 156) through cross validation eases concerns of overfitting).
+
+```{r echo=FALSE}
+
+    pt <- predict(rf, newdata=training)
+    cm <- confusionMatrix(pt, training$classe)
+```
+
+More interestingly, predictions on the test set are also very good.
+
+```{r echo=TRUE}
+    
+    ptt <- predict(rf, newdata=testing)
+    cmt <- confusionMatrix(ptt, testing$classe)
+    cmt 
+```
+
+### Accuracy ###
+
+As noted above the accuracy of the model with the training data is almost exactly 1 (0.9996 ~ 100%) with an estimated **Out of Bag error rate of 1.12%.**
+
+The actual **accuracy with testing data is 0.9915 (99.2%)**.
+
+The decrease in estimated out of sample error as the more and more trees were generated as the model was built is shown clearly in the following chart.
+
+```{r, fig.align="center", echo=FALSE }
+    plot(rf, type="l", main="Random Forest Model")
+```
+
+## Conclusion ##
+
+Using the random forest model with cross validation for feature selection is a highly effective way of predicting activity quality (outcome A-E) from activity monitor data.
+
+[^1]: Data generated and generously shared by the Human Activity Recognition project. Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
+## Appendix A: Preparation Code ##
+
+```{r, warning=FALSE, echo=TRUE, eval=FALSE}
+    # read the data
+    csv <- read.csv("pml-training.csv", stringsAsFactors = FALSE)
+    
+    # convert the classe column into a factor, however
+    csv$classe <- as.factor(csv$classe)
+
+    # remove useless columns
+    removeThese <- c('user_name', 'cvtd_timestamp', 'X')
+    csv <- csv[, !(names(csv) %in% removeThese)]
+    
+    # now convert all columns other than classe to numeric because a few were read as character
+    for (i in 1:length(colnames(csv))){
+        name <- colnames(csv)[i]
+        
+        if (name != "classe"){
+            csv[, name] <- as.numeric(csv[, name])
+            # putting in zeroes in place of the NAs so some kind of analysis is possible
+            nas <- is.na(csv[, name])
+            csv[, name][nas] <- 0
+        }
+    }
+
+ 
+    # segment
+    inTrain <- createDataPartition(y=csv$classe, p=0.70, list=FALSE)
+    training <- csv[inTrain,]
+    testing <- csv[-inTrain,]
+```
+
+## Appendix B ##
+
+Before finalizing the appendices of this report I performed the second section of the assignment in which predictions using the model were uploaded for 20 unlabeled data rows. The model was 100% correct on those. This is taken as strong evidence of the validity of the model.
+
+************
